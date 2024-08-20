@@ -154,7 +154,7 @@ func Manifest(ctx context.Context, provider content.Provider, image ocispec.Desc
 				return nil, err
 			}
 
-			if err := validateMediaType(p, desc.MediaType); err != nil {
+			if err := validateMediaType(ctx, p, desc.MediaType); err != nil {
 				return nil, fmt.Errorf("manifest: invalid desc %s: %w", desc.Digest, err)
 			}
 
@@ -198,7 +198,7 @@ func Manifest(ctx context.Context, provider content.Provider, image ocispec.Desc
 				return nil, err
 			}
 
-			if err := validateMediaType(p, desc.MediaType); err != nil {
+			if err := validateMediaType(ctx, p, desc.MediaType); err != nil {
 				return nil, fmt.Errorf("manifest: invalid desc %s: %w", desc.Digest, err)
 			}
 
@@ -340,6 +340,9 @@ func Check(ctx context.Context, provider content.Provider, image ocispec.Descrip
 // Children returns the immediate children of content described by the descriptor.
 func Children(ctx context.Context, provider content.Provider, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	var descs []ocispec.Descriptor
+
+	ctx = log.WithLogger(ctx, log.G(ctx).WithField("desc", desc))
+
 	switch desc.MediaType {
 	case MediaTypeDockerSchema2Manifest, ocispec.MediaTypeImageManifest:
 		p, err := content.ReadBlob(ctx, provider, desc)
@@ -347,7 +350,7 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 			return nil, err
 		}
 
-		if err := validateMediaType(p, desc.MediaType); err != nil {
+		if err := validateMediaType(ctx, p, desc.MediaType); err != nil {
 			return nil, fmt.Errorf("children: invalid desc %s: %w", desc.Digest, err)
 		}
 
@@ -366,7 +369,7 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 			return nil, err
 		}
 
-		if err := validateMediaType(p, desc.MediaType); err != nil {
+		if err := validateMediaType(ctx, p, desc.MediaType); err != nil {
 			return nil, fmt.Errorf("children: invalid desc %s: %w", desc.Digest, err)
 		}
 
@@ -400,11 +403,24 @@ type unknownDocument struct {
 // validateMediaType returns an error if the byte slice is invalid JSON or if
 // the media type identifies the blob as one format but it contains elements of
 // another format.
-func validateMediaType(b []byte, mt string) error {
+func validateMediaType(ctx context.Context, b []byte, mt string) error {
 	var doc unknownDocument
+
 	if err := json.Unmarshal(b, &doc); err != nil {
+
+		logger := log.L
+		if ctx != nil {
+			logger = log.G(ctx)
+		}
+
+		logger.
+			WithField("manifest", string(b)).
+			WithField("manifest-length", len(b)).
+			Error("validateMediaType")
+
 		return err
 	}
+
 	if len(doc.FSLayers) != 0 {
 		return fmt.Errorf("media-type: schema 1 not supported")
 	}
