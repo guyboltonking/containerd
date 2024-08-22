@@ -345,7 +345,7 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 
 	switch desc.MediaType {
 	case MediaTypeDockerSchema2Manifest, ocispec.MediaTypeImageManifest:
-		p, err := readValidatedManifestBlob(ctx, provider, desc)
+		p, err := readValidatedManifestBlobWithRetry(ctx, provider, desc)
 		if err != nil {
 			return nil, err
 		}
@@ -360,7 +360,7 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 		descs = append(descs, manifest.Config)
 		descs = append(descs, manifest.Layers...)
 	case MediaTypeDockerSchema2ManifestList, ocispec.MediaTypeImageIndex:
-		p, err := readValidatedManifestBlob(ctx, provider, desc)
+		p, err := readValidatedManifestBlobWithRetry(ctx, provider, desc)
 		if err != nil {
 			return nil, err
 		}
@@ -380,6 +380,37 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 	}
 
 	return descs, nil
+}
+
+const readValidatedManifestBlobRetries = 3
+const readValidatedManifestBlobDelaySeconds = 5
+
+func readValidatedManifestBlobWithRetry(ctx context.Context, provider content.Provider, desc ocispec.Descriptor) ([]byte, error) {
+
+	retriesRemaining := readValidatedManifestBlobRetries
+
+	for {
+
+		blob, err := readValidatedManifestBlob(ctx, provider, desc)
+		if err == nil {
+			return blob, nil
+		}
+
+		if retriesRemaining > 0 {
+			log.G(ctx).
+				WithField("retries-remaining", retriesRemaining).
+				WithField("retry-delay-seconds", readValidatedManifestBlobDelaySeconds).
+				WithError(err).
+				Warn("readValidatedManifestBlob failed; retrying")
+
+			retriesRemaining -= 1
+
+			time.Sleep(time.Duration(readValidatedManifestBlobDelaySeconds) * time.Second)
+		} else {
+			return nil, err
+		}
+
+	}
 }
 
 func readValidatedManifestBlob(ctx context.Context, provider content.Provider, desc ocispec.Descriptor) ([]byte, error) {
