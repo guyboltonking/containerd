@@ -345,13 +345,9 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 
 	switch desc.MediaType {
 	case MediaTypeDockerSchema2Manifest, ocispec.MediaTypeImageManifest:
-		p, err := content.ReadBlob(ctx, provider, desc)
+		p, err := readValidatedManifestBlob(ctx, provider, desc)
 		if err != nil {
 			return nil, err
-		}
-
-		if err := validateMediaType(ctx, p, desc.MediaType); err != nil {
-			return nil, fmt.Errorf("children: invalid desc %s: %w", desc.Digest, err)
 		}
 
 		// TODO(stevvooe): We just assume oci manifest, for now. There may be
@@ -364,13 +360,9 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 		descs = append(descs, manifest.Config)
 		descs = append(descs, manifest.Layers...)
 	case MediaTypeDockerSchema2ManifestList, ocispec.MediaTypeImageIndex:
-		p, err := content.ReadBlob(ctx, provider, desc)
+		p, err := readValidatedManifestBlob(ctx, provider, desc)
 		if err != nil {
 			return nil, err
-		}
-
-		if err := validateMediaType(ctx, p, desc.MediaType); err != nil {
-			return nil, fmt.Errorf("children: invalid desc %s: %w", desc.Digest, err)
 		}
 
 		var index ocispec.Index
@@ -388,6 +380,18 @@ func Children(ctx context.Context, provider content.Provider, desc ocispec.Descr
 	}
 
 	return descs, nil
+}
+
+func readValidatedManifestBlob(ctx context.Context, provider content.Provider, desc ocispec.Descriptor) ([]byte, error) {
+	p, err := content.ReadBlob(ctx, provider, desc)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateMediaType(ctx, p, desc.MediaType); err != nil {
+		return nil, fmt.Errorf("children: invalid desc %s: %w", desc.Digest, err)
+	}
+	return p, nil
 }
 
 // unknownDocument represents a manifest, manifest list, or index that has not
@@ -416,6 +420,7 @@ func validateMediaType(ctx context.Context, b []byte, mt string) error {
 		logger.
 			WithField("manifest", string(b)).
 			WithField("manifest-length", len(b)).
+			WithError(err).
 			Error("validateMediaType")
 
 		return err
